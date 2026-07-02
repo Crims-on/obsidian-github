@@ -317,13 +317,17 @@ export default class GitHubPlugin extends Plugin {
 		const modifiedFormatted = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
 
 		const exists = await vault.adapter.exists(fileName);
+		// Don't wipe an existing note when the README fetch failed (empty content)
+		if (exists && !content.trim()) {
+			return !exists;
+		}
 		try {
 			const defaultTemplate = `{{{ content }}}`;
 			const fileContent = await this.renderTemplate(
 				this.settings.useDefaultTemplateStar,
 				this.settings.templatePathStar,
 				defaultTemplate,
-				{ content: new Handlebars.SafeString(content) }
+				{ ...repo, content: new Handlebars.SafeString(content) }
 			);
 
 			let file: TFile;
@@ -796,7 +800,12 @@ function rewriteReadmeLinks(content: string, fullName: string, readmePath: strin
 		const hashIndex = url.indexOf('#');
 		const path = hashIndex === -1 ? url : url.slice(0, hashIndex);
 		const anchor = hashIndex === -1 ? '' : url.slice(hashIndex);
-		const parts = [...readmeDir.split('/').filter(Boolean), ...path.replace(/^\/|^\.\//g, '').split('/')];
+		// Leading-slash paths resolve from repo root, not README dir (GitHub behavior)
+		const rootRelative = path.startsWith('/') && !path.startsWith('//');
+		const stripped = rootRelative ? path.slice(1) : path.replace(/^\.?\//, '');
+		const parts = rootRelative
+			? stripped.split('/').filter(Boolean)
+			: [...readmeDir.split('/').filter(Boolean), ...stripped.split('/')];
 		const resolved: string[] = [];
 
 		for (const part of parts) {
